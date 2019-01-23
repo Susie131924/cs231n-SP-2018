@@ -21,7 +21,7 @@ Q2: Batch Normalization (Completed)
 
 Q3: Dropout (Completed)
 
-Q4: Convolutional Networks (A Little Bit Left)
+Q4: Convolutional Networks (Completed)
 
 Q5: PyTorch / TensorFlow on CIFAR-10 (Not yet)
 
