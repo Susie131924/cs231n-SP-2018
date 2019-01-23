@@ -1,4 +1,4 @@
-# cs231n--2018
+# cs231n Spring 2018
 Stanford cs231n 2018 assignment
 See more instruction:
 http://cs231n.stanford.edu/syllabus.html
