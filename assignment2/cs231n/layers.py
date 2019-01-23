@@ -306,21 +306,17 @@ def batchnorm_backward_alt(dout, cache):
     # single statement; our implementation fits on a single 80-character line.#
     ###########################################################################
     x, gamma, beta, x_norm, mean, var, eps = cache
-    N, D = dout.shape
-    dev = np.sqrt(var + eps)
+    N,D= x.shape
+    dev = 1/np.sqrt(var + eps) #D
     
-    dbeta = np.sum(dout, axis = 0)
-    dgamma = np.sum(dout * x_norm, axis = 0)
+    dbeta = np.sum(dout, axis = 0) #D
+    dgamma = np.sum(dout * x_norm, axis = 0) #D
     
-    dx_norm = gamma * dout #N,D
-    
-    dmean = np.sum(dx_norm * -1 * (1 / dev),axis = 0)
-    ddev = np.sum(dx_norm * (x - mean), axis = 0) * -1 * (dev ** -2)
-    dvar = ddev * 0.5 / dev
-    dx1 = dx_norm / dev
-    dx2 = dmean * (1/N) * np.ones_like(x)
-    dx3 = dvar * (1/N) * np.ones_like(x) * 2 * (x - mean)
-    dx = dx1 + dx2 + dx3
+    dx_norm = dout * gamma #N,D
+
+    #dx = (N*dx_norm - np.sum(dx_norm, axis=0) - x_norm*np.sum(dx_norm*x_norm, axis=0))/N * dev
+    dx = dx_norm * dev - dev/N * np.sum(dx_norm,axis = 0) - dev/N * x_norm * np.sum(dx_norm * x_norm, axis = 0)
+
     ###########################################################################
     #                             END OF YOUR CODE                            #
     ###########################################################################
@@ -400,27 +396,24 @@ def layernorm_backward(dout, cache):
     # still apply!                                                            #
     ###########################################################################
     x, gamma, beta, x_norm, mean, var, eps = cache
-    N, D = dout.shape
-    dev = np.sqrt(var + eps) #N
+    N,D= x.shape
+    dev = 1/np.sqrt(var + eps) #D
     
     dbeta = np.sum(dout, axis = 0) #D
     dgamma = np.sum(dout * x_norm, axis = 0) #D
     
-    dx_norm = gamma * dout #N,D
+    dx_norm = dout * gamma #N,D
     
-    dmean = np.sum(dx_norm.T * -1 * (1 / dev),axis = 0) #N
+    M = D
+    dx_norm = dx_norm.T
+    x_norm =x_norm.T
     
-    ddev = np.sum(dx_norm.T * (x.T - mean), axis = 0) * -1 * (dev ** -2)#N
-    dvar = ddev * 0.5 / dev #N
-    dx1 = dx_norm.T / dev #N,D
-    dx2 = dmean * (1/N) * np.ones_like(x.T) #N,D
-    dx3 = dvar * (1/N) * np.ones_like(x.T) * 2 * (x.T - mean)#N,D
-    dx = dx1 + dx2 + dx3
-    dx = dx.T
+    dx = dx_norm * dev - dev/M * np.sum(dx_norm,axis =0) - dev/M * x_norm * np.sum(dx_norm * x_norm, axis = 0)
+
     ###########################################################################
     #                             END OF YOUR CODE                            #
     ###########################################################################
-    return dx, dgamma, dbeta
+    return dx.T, dgamma, dbeta
 
 
 def dropout_forward(x, dropout_param):
@@ -800,7 +793,8 @@ def spatial_groupnorm_forward(x, gamma, beta, G, gn_param):
     x_norm = (x-(mean)[:,:,None,None,None]) / np.sqrt((var)[:,:,None,None,None] + eps)
     x_norm = x_norm.reshape(N, C, H, W)
     out = x_norm * gamma + beta
-    cache = (x, gamma, beta, G, x_norm, mean, var, eps)
+    cache = (gamma, beta, G, x_norm, mean, var, eps)
+    
     ###########################################################################
     #                             END OF YOUR CODE                            #
     ###########################################################################
@@ -826,34 +820,27 @@ def spatial_groupnorm_backward(dout, cache):
     # TODO: Implement the backward pass for spatial group normalization.      #
     # This will be extremely similar to the layer norm implementation.        #
     ###########################################################################
-    x, gamma, beta, G, x_norm, mean, var, eps = cache
+    gamma, beta,G, x_norm, mean, var, eps = cache
     N, C, H, W = dout.shape
-    dev = np.sqrt(var + eps) #N,G
+    dev = 1/np.sqrt(var + eps) #D
     
-    dbeta = np.sum(dout, axis = (0,2,3)) #C
-    dgamma = np.sum(dout * x_norm, axis = (0,2,3)) #C
+    dbeta = np.sum(dout, axis = (0,2,3)).reshape((1,C,1,1))  #C
+    dgamma = np.sum(dout * x_norm, axis = (0,2,3)).reshape((1,C,1,1))  #C
     
-    dx_norm = dout * gamma #N, C, H, W
-    dx_norm = dx_norm.reshape(N,G,C//G,H,W)
+    dx_norm = dout * gamma 
     
-    dmean = np.sum(dx_norm * -1 * (1 / (dev)[:,:,None,None,None]),axis = (2,3,4)) #N,G
+    M = C//G* H*W
+    dx_norm = dx_norm.reshape(N, G, C//G, H, W)
+    dx_norm = dx_norm.T
+    x_norm = x_norm.reshape(N, G, C//G, H, W)
+    x_norm =x_norm.T
+    dev = dev.T
     
-    #print(dmean.shape)
+    dx = dx_norm * dev - dev/M * np.sum(dx_norm,axis = (0,1,2)) - dev/M * x_norm * np.sum(dx_norm * x_norm, axis = (0,1,2))
     
-    x = x.reshape(N,G,C//G,H,W)
-    
-    ddev = np.sum(dx_norm * (x - (mean)[:,:,None,None,None]), axis = (2,3,4)) * -1 * (dev ** -2)#N,G
-    dvar = ddev * 0.5 / dev #N,G
-    dx1 = dx_norm / (dev)[:,:,None,None,None] #N,G, C/G, H, W
-    dx2 = (dmean)[:,:,None,None,None] * np.ones_like(x)/(N*G) #N,G, C/G, H, W
-    dx3 = (dvar)[:,:,None,None,None] * np.ones_like(x) * 2 * (x - (mean)[:,:,None,None,None])/(N*G)#N,G, C/G, H, W
-    dx = dx1 + dx2 + dx3#N,G, C/G, H, W
+    dx = dx.T
     dx = dx.reshape(N, C, H, W)
-    ###########################################################################
-    #                             END OF YOUR CODE                            #
-    ###########################################################################
-    return dx, dgamma, dbeta
-
+    return dx,dgamma,dbeta
 
 def svm_loss(x, y):
     """
